@@ -2,6 +2,8 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
+import 'dart:io';
+
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:build/build.dart';
 import 'package:json_annotation/json_annotation.dart';
@@ -70,15 +72,39 @@ class _UnifiedGenerator extends Generator {
       }
     }
 
+    List<Map<String, dynamic>> modifications = [];
+
     for (var generator in _generators) {
       if (generator is JsonSerializableGenerator) {
         for (var annotatedElement
             in library.annotatedWith(generator.typeChecker)) {
-          await generator.addToJSONAndFromJSONToClasses(
+          var modification = await generator.addToJSONAndFromJSONToClasses(
               annotatedElement.element, annotatedElement.annotation, buildStep);
+          modifications.add(modification);
         }
       }
     }
+
+    modifications.sort((a, b) =>
+        (b['startOffset'] as int).compareTo((a['startOffset'] as int)));
+    for (var modification in modifications) {
+      var filePath = modification['filePath'] as String;
+      var startOffset = modification['startOffset'] as int;
+      var endOffset = modification['endOffset'] as int;
+      var newClassSource = modification['newClassSource'] as String;
+
+      // Read the existing content of the file.
+      var fileContent = await File(filePath).readAsString();
+
+      // Apply the modification.
+      var updatedContent = fileContent.substring(0, startOffset) +
+          newClassSource +
+          fileContent.substring(endOffset);
+
+      // Overwrite the file with the updated content.
+      await File(filePath).writeAsString(updatedContent);
+    }
+
     return values.join('\n\n');
   }
 

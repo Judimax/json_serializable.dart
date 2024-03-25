@@ -2,7 +2,7 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
-// ignore_for_file: lines_longer_than_80_chars
+// ignore_for_file: lines_longer_than_80_chars, omit_local_variable_types, directives_ordering
 
 import 'dart:io';
 import 'package:path/path.dart' as p;
@@ -13,6 +13,8 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:build/build.dart';
 import 'package:source_gen/source_gen.dart';
+import 'package:code_builder/code_builder.dart';
+import 'package:dart_style/dart_style.dart';
 
 import '../type_helper.dart';
 import 'decode_helper.dart';
@@ -47,14 +49,14 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
   @override
   Iterable<TypeHelper> get allTypeHelpers => _generator.allHelpers;
 
-  Future<void> addToJSONAndFromJSONToClasses() async {
+  Future<Map<String, dynamic>> addToJSONAndFromJSONToClasses() async {
     final assetId = buildStep!.inputId;
     var sourcePath = await buildStep!.canRead(assetId) ? assetId.path : null;
 
     if (sourcePath == null) {
-      return;
+      return {};
     }
-    var projectRoot = Directory.current.path;
+    final projectRoot = Directory.current.path;
     sourcePath = p.join(projectRoot, assetId.path);
     sourcePath = p.normalize(sourcePath);
     final collection = AnalysisContextCollection(includedPaths: [sourcePath]);
@@ -72,33 +74,115 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
                 orElse: () => throw Exception('Class not found'),
               );
 
-      // Create a new method node
-      final method1 = '''
-      factory $className.fromJson(Map<String, dynamic> json) => _\$${className}FromJson(json);
-      ''';
+      final newClass = Class((builder) {
+        builder
+          ..name = element.name
+          ..extend = Reference(
+              element.supertype!.getDisplayString(withNullability: false));
 
-      final method2 = '''
-      Map<String, dynamic> toJson() => _\$${className}ToJson(this);
-      ''';
+        // Copy constructors
+        for (var constructor in element.constructors) {
+          builder.constructors.add(Constructor((cBuilder) {
+            cBuilder
+              ..name = constructor.name
+              ..requiredParameters.addAll(constructor.parameters
+                  .where((param) =>
+                      param.isRequiredPositional || param.isRequiredNamed)
+                  .map((param) => Parameter((pBuilder) => pBuilder
+                    ..name = param.name
+                    ..type = refer(
+                        param.type.getDisplayString(withNullability: true)))))
+              ..optionalParameters.addAll(constructor.parameters
+                  .where((param) =>
+                      param.isOptionalPositional || param.isOptionalNamed)
+                  .map((param) => Parameter((pBuilder) => pBuilder
+                    ..name = param.name
+                    ..type = refer(
+                        param.type.getDisplayString(withNullability: true))
+                    ..defaultTo = (param.defaultValueCode != null)
+                        ? Code(param.defaultValueCode!)
+                        : null
+                    ..named = param.isNamed
+                    ..required = param.isRequiredNamed)));
+          }));
+        }
 
-      final classEndOffset = classDeclaration.end;
-      final source = unit.toSource();
+        // Copy fields
+        for (var field in element.fields) {
+          if (!field.isStatic) {
+            var fieldBuilder = FieldBuilder()
+              ..name = field.name
+              ..type =
+                  refer(field.type.getDisplayString(withNullability: true));
 
-      // Here, we assume the class is indented with two spaces,
-      // adjust the indentation as per your codebase's style
-      final indentation = '  ';
-      final methodInsertion = '\n$indentation$method1\n$indentation$method2\n';
+            // Conditionally set the field as final
+            if (field.isFinal) {
+              fieldBuilder.modifier = FieldModifier.final$;
+            } else {
+              fieldBuilder.modifier = FieldModifier.var$;
+            }
 
-      if (classEndOffset <= source.length) {
-        final updatedSource = source.substring(0, classEndOffset - 1) +
-            methodInsertion +
-            source.substring(classEndOffset - 1);
-        final sourceFile = File(sourcePath);
-        await sourceFile.writeAsString(updatedSource);
-      }
+            // Add the field to the class builder
+            builder.fields.add(fieldBuilder.build());
+          }
+        }
 
+        // Copy methods
+        for (var method in element.methods) {
+          if (!method.isStatic) {
+            builder.methods.add(Method((m) => m
+              ..name = method.name
+              ..returns = refer(
+                  method.returnType.getDisplayString(withNullability: true))
+              ..requiredParameters.addAll(method.parameters
+                  .where((param) =>
+                      param.isRequiredPositional || param.isRequiredNamed)
+                  .map((param) => Parameter((pBuilder) => pBuilder
+                    ..name = param.name
+                    ..type = refer(
+                        param.type.getDisplayString(withNullability: true)))))
+              ..optionalParameters.addAll(method.parameters
+                  .where((param) =>
+                      param.isOptionalPositional || param.isOptionalNamed)
+                  .map((param) => Parameter((pBuilder) => pBuilder
+                    ..name = param.name
+                    ..type = refer(
+                        param.type.getDisplayString(withNullability: true))
+                    ..defaultTo = (param.defaultValueCode != null)
+                        ? Code(param.defaultValueCode!)
+                        : null
+                    ..named = param.isNamed
+                    ..required = param.isRequiredNamed)))
+              ..body = Code(method.source.toString())));
+          }
+        }
 
+        // Add toJson method
+        builder.methods.add(Method((m) => m
+          ..name = 'toJson'
+          ..returns = const Reference('Map<String, dynamic>')
+          ..body = Code('return _\$${element.name}ToJson(this);')));
+
+        builder.constructors.add(Constructor((c) => c
+          ..name = 'fromJson'
+          ..factory = true
+          ..requiredParameters.add(Parameter((p) => p
+            ..name = 'json'
+            ..type = Reference('Map<String, dynamic>')))
+          ..body = Code('return _\$${element.name}FromJson(json);')));
+      });
+      final classSpec = newClass.toBuilder().build();
+      final emitter = DartEmitter();
+      final newClassSource = '${classSpec.accept(emitter)}';
+
+      return {
+        'filePath': sourcePath,
+        'startOffset': classDeclaration.offset,
+        'endOffset': classDeclaration.end,
+        'newClassSource': newClassSource,
+      };
     }
+    return {};
   }
 
   Iterable<String> generate() sync* {

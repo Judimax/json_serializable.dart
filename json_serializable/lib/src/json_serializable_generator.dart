@@ -83,7 +83,7 @@ class JsonSerializableGenerator
     return helper.generate();
   }
 
-  Future<void> addToJSONAndFromJSONToClasses(
+  Future<Map<String, dynamic>> addToJSONAndFromJSONToClasses(
     Element element,
     ConstantReader annotation,
     BuildStep buildStep,
@@ -98,6 +98,6 @@ class JsonSerializableGenerator
     final fileLocation = element.source.uri;
     final helper = GeneratorHelper(_settings, element, annotation,
         fileLocation: fileLocation, buildStep: buildStep);
-    await helper.addToJSONAndFromJSONToClasses();
+    return await helper.addToJSONAndFromJSONToClasses();
   }
 }
