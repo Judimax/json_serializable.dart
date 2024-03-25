@@ -2,6 +2,14 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
+// ignore_for_file: lines_longer_than_80_chars
+
+import 'dart:io';
+import 'package:path/path.dart' as p;
+
+import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
+import 'package:analyzer/dart/analysis/results.dart';
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:build/build.dart';
 import 'package:source_gen/source_gen.dart';
@@ -17,12 +25,13 @@ import 'utils.dart';
 class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
   final Settings _generator;
   final _addedMembers = <String>{};
+  Uri? fileLocation;
+  BuildStep? buildStep;
 
   GeneratorHelper(
-    this._generator,
-    ClassElement element,
-    ConstantReader annotation,
-  ) : super(
+      this._generator, ClassElement element, ConstantReader annotation,
+      {this.fileLocation, this.buildStep})
+      : super(
             element,
             mergeConfig(
               _generator.config,
@@ -37,6 +46,60 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
 
   @override
   Iterable<TypeHelper> get allTypeHelpers => _generator.allHelpers;
+
+  Future<void> addToJSONAndFromJSONToClasses() async {
+    final assetId = buildStep!.inputId;
+    var sourcePath = await buildStep!.canRead(assetId) ? assetId.path : null;
+
+    if (sourcePath == null) {
+      return;
+    }
+    var projectRoot = Directory.current.path;
+    sourcePath = p.join(projectRoot, assetId.path);
+    sourcePath = p.normalize(sourcePath);
+    final collection = AnalysisContextCollection(includedPaths: [sourcePath]);
+    final analysisContext = collection.contextFor(sourcePath);
+    final result = analysisContext.currentSession.getParsedUnit(sourcePath);
+
+    final className = element.name;
+    if (result is ParsedUnitResult) {
+      final unit = result.unit;
+
+      // Find the class declaration
+      final classDeclaration =
+          unit.declarations.whereType<ClassDeclaration>().firstWhere(
+                (decl) => decl.name.toString() == className,
+                orElse: () => throw Exception('Class not found'),
+              );
+
+      // Create a new method node
+      final method1 = '''
+      factory $className.fromJson(Map<String, dynamic> json) => _\$${className}FromJson(json);
+      ''';
+
+      final method2 = '''
+      Map<String, dynamic> toJson() => _\$${className}ToJson(this);
+      ''';
+
+      final classEndOffset = classDeclaration.end;
+      final source = unit.toSource();
+
+      // Here, we assume the class is indented with two spaces,
+      // adjust the indentation as per your codebase's style
+      final indentation = '  ';
+      final methodInsertion = '\n$indentation$method1\n$indentation$method2\n';
+
+      if (classEndOffset <= source.length) {
+        final updatedSource = source.substring(0, classEndOffset - 1) +
+            methodInsertion +
+            source.substring(classEndOffset - 1);
+        final sourceFile = File(sourcePath);
+        await sourceFile.writeAsString(updatedSource);
+      }
+
+
+    }
+  }
 
   Iterable<String> generate() sync* {
     assert(_addedMembers.isEmpty);
@@ -143,6 +206,8 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
     if (config.createToJson) {
       yield* createToJson(accessibleFieldSet);
     }
+
+    addToJSONAndFromJSONToClasses();
 
     yield* _addedMembers;
   }

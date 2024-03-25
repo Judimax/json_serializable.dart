@@ -76,7 +76,28 @@ class JsonSerializableGenerator
       );
     }
 
-    final helper = GeneratorHelper(_settings, element, annotation);
+    final fileLocation = element.source.uri;
+
+    final helper = GeneratorHelper(_settings, element, annotation,
+        fileLocation: fileLocation, buildStep: buildStep);
     return helper.generate();
+  }
+
+  Future<void> addToJSONAndFromJSONToClasses(
+    Element element,
+    ConstantReader annotation,
+    BuildStep buildStep,
+  ) async {
+
+    if (element is! ClassElement || element is EnumElement) {
+      throw InvalidGenerationSourceError(
+        '`@JsonSerializable` can only be used on classes.',
+        element: element,
+      );
+    }
+    final fileLocation = element.source.uri;
+    final helper = GeneratorHelper(_settings, element, annotation,
+        fileLocation: fileLocation, buildStep: buildStep);
+    await helper.addToJSONAndFromJSONToClasses();
   }
 }

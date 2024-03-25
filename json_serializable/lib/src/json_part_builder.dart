@@ -2,8 +2,10 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:build/build.dart';
 import 'package:json_annotation/json_annotation.dart';
+import 'package:json_serializable/src/generator_helper.dart';
 import 'package:source_gen/source_gen.dart';
 
 import 'check_dependencies.dart';
@@ -68,34 +70,42 @@ class _UnifiedGenerator extends Generator {
       }
     }
 
+    for (var generator in _generators) {
+      if (generator is JsonSerializableGenerator) {
+        for (var annotatedElement
+            in library.annotatedWith(generator.typeChecker)) {
+          await generator.addToJSONAndFromJSONToClasses(
+              annotatedElement.element, annotatedElement.annotation, buildStep);
+        }
+      }
+    }
     return values.join('\n\n');
   }
 
   @override
   String toString() => 'JsonSerializableGenerator';
-}
-
 // Borrowed from `package:source_gen`
-Iterable<String> _normalizeGeneratorOutput(Object? value) {
-  if (value == null) {
-    return const [];
-  } else if (value is String) {
-    value = [value];
+  Iterable<String> _normalizeGeneratorOutput(Object? value) {
+    if (value == null) {
+      return const [];
+    } else if (value is String) {
+      value = [value];
+    }
+
+    if (value is Iterable) {
+      return value.where((e) => e != null).map((e) {
+        if (e is String) {
+          return e.trim();
+        }
+
+        throw _argError(e as Object);
+      }).where((e) => e.isNotEmpty);
+    }
+    throw _argError(value);
   }
 
-  if (value is Iterable) {
-    return value.where((e) => e != null).map((e) {
-      if (e is String) {
-        return e.trim();
-      }
-
-      throw _argError(e as Object);
-    }).where((e) => e.isNotEmpty);
-  }
-  throw _argError(value);
-}
-
 // Borrowed from `package:source_gen`
-ArgumentError _argError(Object value) => ArgumentError(
-    'Must be a String or be an Iterable containing String values. '
-    'Found `${Error.safeToString(value)}` (${value.runtimeType}).');
+  ArgumentError _argError(Object value) => ArgumentError(
+      'Must be a String or be an Iterable containing String values. '
+      'Found `${Error.safeToString(value)}` (${value.runtimeType}).');
+}
