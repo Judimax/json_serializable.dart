@@ -74,6 +74,8 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
                 orElse: () => throw Exception('Class not found'),
               );
 
+      print(classDeclaration.toString());
+
       final newClass = Class((builder) {
         builder..name = element.name;
         // ..extend = Reference(
@@ -82,9 +84,10 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
         // Copy fields
         for (var field in element.fields) {
           if (!field.isStatic) {
-            var fieldBuilder = FieldBuilder()..name = field.name;
-            // ..type =
-            //     refer(field.type.getDisplayString(withNullability: true));
+            var fieldBuilder = FieldBuilder()
+              ..name = field.name
+              ..type =
+                  refer(field.type.getDisplayString(withNullability: true));
 
             // Conditionally set the field as final
             if (field.isFinal) {
@@ -98,28 +101,57 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
           }
         }
 
-        // copy constructors
+        // Copy constructors
         for (var constructor in element.constructors) {
           builder.constructors.add(Constructor((cBuilder) {
-            if (constructor.name != '') {
+            if (constructor.name.isNotEmpty) {
               cBuilder.name = constructor.name;
             }
-            cBuilder
-              ..requiredParameters.addAll(constructor.parameters
-                  .where((param) =>
-                      param.isRequiredPositional || param.isRequiredNamed)
-                  .map((param) => Parameter((pBuilder) => pBuilder
-                    ..name = param.name
-                    ..toThis = true
-                    ..named = param.isNamed)))
-              ..optionalParameters.addAll(constructor.parameters
-                  .where((param) =>
-                      param.isOptionalPositional || param.isOptionalNamed)
-                  .map((param) => Parameter((pBuilder) => pBuilder
-                    ..name = param.name
-                    ..toThis = true
-                    ..named = param.isNamed
-                    ..required = param.isRequiredNamed)));
+
+            // Handle required and optional positional parameters
+            cBuilder.requiredParameters.addAll(constructor.parameters
+                .where((param) => param.isRequiredPositional)
+                .map((param) => Parameter((pBuilder) => pBuilder
+                  ..name = param.name
+                  ..type =
+                      refer(param.type.getDisplayString(withNullability: true))
+                  ..toThis = true
+                  ..named = true)));
+
+            cBuilder.optionalParameters.addAll(constructor.parameters
+                .where((param) => param.isOptionalPositional)
+                .map((param) => Parameter((pBuilder) => pBuilder
+                  ..name = param.name
+                  ..type =
+                      refer(param.type.getDisplayString(withNullability: true))
+                  ..toThis = true
+                  ..named = true
+                  ..defaultTo = (param.defaultValueCode != null)
+                      ? Code(param.defaultValueCode!)
+                      : null)));
+
+            // Handle named parameters
+            cBuilder.requiredParameters.addAll(constructor.parameters
+                .where((param) => param.isRequiredNamed)
+                .map((param) => Parameter((pBuilder) => pBuilder
+                  ..name = param.name
+                  // ..type = refer(param.type.getDisplayString(withNullability: true))
+                  ..toThis = true
+                  ..named = true
+                  ..required = true)));
+
+            cBuilder.optionalParameters.addAll(constructor.parameters
+                .where((param) => param.isOptionalNamed)
+                .map((param) => Parameter((pBuilder) => pBuilder
+                  ..name = param.name
+                  ..type =
+                      refer(param.type.getDisplayString(withNullability: true))
+                  ..toThis = true
+                  ..named = true
+                  ..required = false
+                  ..defaultTo = (param.defaultValueCode != null)
+                      ? Code(param.defaultValueCode!)
+                      : null)));
           }));
         }
 
