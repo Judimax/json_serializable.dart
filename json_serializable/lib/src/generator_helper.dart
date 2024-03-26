@@ -75,45 +75,16 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
               );
 
       final newClass = Class((builder) {
-        builder
-          ..name = element.name
-          ..extend = Reference(
-              element.supertype!.getDisplayString(withNullability: false));
-
-        // Copy constructors
-        for (var constructor in element.constructors) {
-          builder.constructors.add(Constructor((cBuilder) {
-            cBuilder
-              ..name = constructor.name
-              ..requiredParameters.addAll(constructor.parameters
-                  .where((param) =>
-                      param.isRequiredPositional || param.isRequiredNamed)
-                  .map((param) => Parameter((pBuilder) => pBuilder
-                    ..name = param.name
-                    ..type = refer(
-                        param.type.getDisplayString(withNullability: true)))))
-              ..optionalParameters.addAll(constructor.parameters
-                  .where((param) =>
-                      param.isOptionalPositional || param.isOptionalNamed)
-                  .map((param) => Parameter((pBuilder) => pBuilder
-                    ..name = param.name
-                    ..type = refer(
-                        param.type.getDisplayString(withNullability: true))
-                    ..defaultTo = (param.defaultValueCode != null)
-                        ? Code(param.defaultValueCode!)
-                        : null
-                    ..named = param.isNamed
-                    ..required = param.isRequiredNamed)));
-          }));
-        }
+        builder..name = element.name;
+        // ..extend = Reference(
+        //     element.supertype!.getDisplayString(withNullability: false));
 
         // Copy fields
         for (var field in element.fields) {
           if (!field.isStatic) {
-            var fieldBuilder = FieldBuilder()
-              ..name = field.name
-              ..type =
-                  refer(field.type.getDisplayString(withNullability: true));
+            var fieldBuilder = FieldBuilder()..name = field.name;
+            // ..type =
+            //     refer(field.type.getDisplayString(withNullability: true));
 
             // Conditionally set the field as final
             if (field.isFinal) {
@@ -125,6 +96,31 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
             // Add the field to the class builder
             builder.fields.add(fieldBuilder.build());
           }
+        }
+
+        // copy constructors
+        for (var constructor in element.constructors) {
+          builder.constructors.add(Constructor((cBuilder) {
+            if (constructor.name != '') {
+              cBuilder.name = constructor.name;
+            }
+            cBuilder
+              ..requiredParameters.addAll(constructor.parameters
+                  .where((param) =>
+                      param.isRequiredPositional || param.isRequiredNamed)
+                  .map((param) => Parameter((pBuilder) => pBuilder
+                    ..name = param.name
+                    ..toThis = true
+                    ..named = param.isNamed)))
+              ..optionalParameters.addAll(constructor.parameters
+                  .where((param) =>
+                      param.isOptionalPositional || param.isOptionalNamed)
+                  .map((param) => Parameter((pBuilder) => pBuilder
+                    ..name = param.name
+                    ..toThis = true
+                    ..named = param.isNamed
+                    ..required = param.isRequiredNamed)));
+          }));
         }
 
         // Copy methods
@@ -171,6 +167,7 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
             ..type = Reference('Map<String, dynamic>')))
           ..body = Code('return _\$${element.name}FromJson(json);')));
       });
+
       final classSpec = newClass.toBuilder().build();
       final emitter = DartEmitter();
       final newClassSource = '${classSpec.accept(emitter)}';
