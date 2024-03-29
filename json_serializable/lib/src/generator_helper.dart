@@ -88,7 +88,7 @@ class GeneratorHelper extends HelperCore with EncodeHelper, DecodeHelper {
       final int insertPosition = classSource.lastIndexOf('}');
       // Check if the methods already exist
       final bool hasToJsonMethod =
-          fileContent.contains('Map<String, dynamic> toJson() =>');
+          fileContent.contains('Map<String, dynamic> toJson()');
       final bool hasFromJsonConstructor = fileContent.contains(
           'factory ${element.name}.fromJson(');
 
